@@ -24,3 +24,5 @@ npm run check
 ```
 
 Every push to `main` builds and publishes the site with GitHub Actions.
+
+Customer and appointment records are stored only in Supabase and are not committed to this public repository.
