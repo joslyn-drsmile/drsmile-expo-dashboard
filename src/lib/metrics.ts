@@ -17,9 +17,12 @@ export function dashboardMetrics(data: AppData, expoId: string, from?: string, t
     .filter((item) => item.expoId === expoId && (!to || item.asOfDate <= to))
     .sort((a, b) => b.asOfDate.localeCompare(a.asOfDate))[0];
   const adsSpend = snapshot?.adsSpend ?? 0;
-  const sales = snapshot?.sales ?? 0;
+  const forecastSales = snapshot?.forecastSales ?? 0;
+  const autoSales = inRange.reduce((total, appointment) => total + (appointment.purchaseAmount ?? 0), 0);
+  const hasManualSales = snapshot != null && snapshot.sales > 0;
+  const sales = hasManualSales ? snapshot.sales : autoSales;
 
-  const bySource = data.sources.map((source) => {
+  const bySource = data.sources.filter((source) => source.active).map((source) => {
     const rows = inRange.filter((item) => item.sourceId === source.id);
     const sourceAttended = rows.filter((item) => item.attended).length;
     const sourcePurchased = rows.filter((item) => item.purchased).length;
@@ -54,7 +57,10 @@ export function dashboardMetrics(data: AppData, expoId: string, from?: string, t
     pending,
     freebieOnly,
     adsSpend,
+    forecastSales,
     sales,
+    autoSales,
+    hasManualSales,
     costPerAppointment: inRange.length ? adsSpend / inRange.length : null,
     aov: purchased ? sales / purchased : null,
     roas: adsSpend ? sales / adsSpend : null,

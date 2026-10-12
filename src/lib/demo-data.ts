@@ -9,5 +9,6 @@ export const demoData: AppData = {
   sources: [],
   blacklist: [],
   marketing: [],
+  packages: [],
   auditLogs: [],
 };

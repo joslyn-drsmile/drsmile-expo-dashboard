@@ -1,4 +1,4 @@
-export type PageKey = "dashboard" | "appointments" | "customers" | "expos" | "blacklist";
+export type PageKey = "dashboard" | "appointments" | "customers" | "expos" | "packages" | "payments" | "blacklist" | "users";
 export type Gender = "Female" | "Male" | "Other";
 export type UserType = "NEW" | "VIP";
 export type PaidStatus = "Paid RM1" | "Unpaid" | "Other";
@@ -59,7 +59,10 @@ export interface Appointment {
   baristaRegistered: boolean;
   attended: boolean;
   purchased: boolean;
+  purchaseAmount: number;
   reminderSent: boolean;
+  attention?: boolean;
+  attentionReason?: string;
   createdAt: string;
 }
 
@@ -86,6 +89,7 @@ export interface MarketingSnapshot {
   expoId: string;
   asOfDate: string;
   adsSpend: number;
+  forecastSales: number;
   sales: number;
   updatedAt: string;
 }
@@ -96,7 +100,40 @@ export interface AuditLog {
   recordId: string;
   action: string;
   summary: string;
+  actorId?: string;
+  actorName?: string;
+  actorEmail?: string;
   createdAt: string;
+}
+
+export interface ExpoPackage {
+  id: string;
+  expoId: string;
+  name: string;
+  price: number;
+  currency: "MYR";
+  description: string;
+  voucherAmount: number | null;
+  voucherQuantity: number | null;
+  voucherNote: string;
+  imagePath: string;
+  sortOrder: number;
+  active: boolean;
+  copiedFromPackageId: string;
+  createdBy: string;
+  updatedBy: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface PackageDraft {
+  expoId: string;
+  name: string;
+  price: number;
+  description: string;
+  voucherAmount: number | null;
+  voucherQuantity: number | null;
+  voucherNote: string;
 }
 
 export interface AppData {
@@ -108,6 +145,7 @@ export interface AppData {
   sources: MarketingSource[];
   blacklist: BlacklistEntry[];
   marketing: MarketingSnapshot[];
+  packages: ExpoPackage[];
   auditLogs: AuditLog[];
 }
 

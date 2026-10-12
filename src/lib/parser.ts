@@ -1,5 +1,5 @@
 import type { Gender, SmartPasteResult } from "./types";
-import { normalizePhone } from "./utils";
+import { displayPhone, normalizePhone } from "./utils";
 
 const aliases = {
   name: ["姓名", "名字", "name", "customer name"],
@@ -43,10 +43,7 @@ function parseExisting(raw: string): boolean | null {
   return null;
 }
 
-function parseDate(raw: string) {
-  const match = raw.match(/\b(\d{1,2})[\/-](\d{1,2})(?:[\/-](\d{2,4}))?\b/);
-  if (!match) return "";
-  const [, day, month, suppliedYear] = match;
+function validDate(day: string, month: string, suppliedYear?: string) {
   const currentYear = new Intl.DateTimeFormat("en", { timeZone: "Asia/Kuala_Lumpur", year: "numeric" }).format(new Date());
   const year = suppliedYear ? (suppliedYear.length === 2 ? `20${suppliedYear}` : suppliedYear) : currentYear;
   const date = `${year}-${month.padStart(2, "0")}-${day.padStart(2, "0")}`;
@@ -54,7 +51,41 @@ function parseDate(raw: string) {
   return Number.isNaN(parsed.getTime()) || parsed.getFullYear() !== Number(year) || parsed.getMonth() + 1 !== Number(month) || parsed.getDate() !== Number(day) ? "" : date;
 }
 
-export function parseSmartPaste(raw: string): SmartPasteResult {
+function nearestKnownDay(day: number, knownDates: string[]) {
+  const candidates = knownDates
+    .filter((date) => Number(date.slice(8, 10)) === day)
+    .sort();
+  if (!candidates.length) return "";
+  const today = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kuala_Lumpur", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
+  return candidates.find((date) => date >= today) ?? candidates[candidates.length - 1];
+}
+
+function parseDate(raw: string, knownDates: string[]) {
+  const normalized = raw.replace(/[／]/g, "/").replace(/[．。]/g, ".");
+  const iso = normalized.match(/\b(20\d{2})[-/.](\d{1,2})[-/.](\d{1,2})\b/);
+  if (iso) return validDate(iso[3], iso[2], iso[1]);
+
+  const chineseFull = normalized.match(/(?:(20\d{2})\s*年\s*)?(\d{1,2})\s*月\s*(\d{1,2})\s*(?:日|号)/);
+  if (chineseFull) return validDate(chineseFull[3], chineseFull[2], chineseFull[1]);
+
+  const numeric = normalized.match(/\b(\d{1,2})[\/.-](\d{1,2})(?:[\/.-](\d{2,4}))?\b/);
+  if (numeric) {
+    const exact = validDate(numeric[1], numeric[2], numeric[3]);
+    if (exact && (numeric[3] || !knownDates.length || knownDates.includes(exact))) return exact;
+    if (!numeric[3]) {
+      const day = Number(numeric[1]);
+      const month = Number(numeric[2]);
+      const matchingKnown = knownDates.find((date) => Number(date.slice(5, 7)) === month && Number(date.slice(8, 10)) === day);
+      if (matchingKnown) return matchingKnown;
+    }
+    return exact;
+  }
+
+  const dayOnly = normalized.match(/(?:^|[:：\s])(\d{1,2})\s*(?:日|号)(?:\s|$|[，,。.)）])/);
+  return dayOnly ? nearestKnownDay(Number(dayOnly[1]), knownDates) : "";
+}
+
+export function parseSmartPaste(raw: string, knownDates: string[] = []): SmartPasteResult {
   const lines = raw.split(/\r?\n/).map(cleanLine).filter(Boolean);
   const name = labelledValue(lines, aliases.name);
   const genderRaw = labelledValue(lines, aliases.gender);
@@ -69,11 +100,12 @@ export function parseSmartPaste(raw: string): SmartPasteResult {
   const existing = parseExisting(existingRaw);
   const normalized = normalizePhone(phone);
 
+  const date = parseDate(dateRaw, knownDates);
   return {
     name: { value: name, confidence: name ? "high" : "unresolved" },
     gender: { value: gender, confidence: gender ? "high" : "unresolved" },
-    phone: { value: phone, confidence: normalized ? (labelledPhone ? "high" : "medium") : "unresolved" },
-    date: { value: parseDate(dateRaw), confidence: parseDate(dateRaw) ? "high" : "unresolved" },
+    phone: { value: normalized ? displayPhone(normalized) : phone, confidence: normalized ? (labelledPhone ? "high" : "medium") : "unresolved" },
+    date: { value: date, confidence: date ? "high" : "unresolved" },
     time: { value: time.trim(), confidence: time ? (labelledValue(lines, aliases.time) ? "high" : "medium") : "unresolved" },
     concern: { value: concern, confidence: concern ? "high" : "unresolved" },
     existingUser: { value: existing, confidence: existing === null ? "unresolved" : "high" },
@@ -87,11 +119,12 @@ export function detectAdsLink(raw: string) {
     const host = url.hostname.replace(/^www\./, "").toLowerCase();
     const paid = /utm_medium=(paid|cpc)|ad_id=|campaign_id=/i.test(url.search);
     if (host.includes("instagram.com")) {
-      return { platform: "IG" as const, source: paid ? "IG Ads" : /\/(p|reel)\//.test(url.pathname) ? "IG Post" : "", confidence: paid || /\/(p|reel)\//.test(url.pathname) ? "high" as const : "medium" as const };
+      return { platform: "IG" as const, source: "IG Ads", confidence: paid ? "high" as const : "medium" as const };
     }
     if (host.includes("facebook.com") || host === "fb.me") {
-      return { platform: "FB" as const, source: paid ? "FB Ads" : /(posts|permalink|reel|videos)/.test(url.pathname) ? "FB Post" : "", confidence: paid || /(posts|permalink|reel|videos)/.test(url.pathname) ? "high" as const : "medium" as const };
+      return { platform: "FB" as const, source: "FB Ads", confidence: paid ? "high" as const : "medium" as const };
     }
+    if (host.includes("wa.me") || host.includes("whatsapp.com")) return { platform: "WhatsApp" as const, source: "WA Ads", confidence: "medium" as const };
   } catch {}
-  return { platform: "" as const, source: "Other", confidence: "medium" as const };
+  return { platform: "" as const, source: "", confidence: "unresolved" as const };
 }

@@ -1,26 +1,40 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { addMonths, eachDayOfInterval, endOfMonth, endOfWeek, format as calendarFormat, isSameMonth, parseISO, startOfMonth, startOfWeek } from "date-fns";
 import { Area, AreaChart, Bar, BarChart, CartesianGrid, Cell, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
-import { ArrowUpRight, CalendarDays, Megaphone, PencilLine, ShoppingBag, Sparkles, UserCheck, UserRoundX, UsersRound, WalletCards, X } from "lucide-react";
+import { ArrowRight, ArrowUpRight, BadgeDollarSign, Calculator, CalendarDays, ChevronLeft, ChevronRight, History, MapPin, Megaphone, PencilLine, ReceiptText, ShoppingBag, Sparkles, TrendingUp, UserCheck, UserRoundX, UsersRound, WalletCards, X } from "lucide-react";
 import type { AppData } from "@/lib/types";
 import { dashboardMetrics } from "@/lib/metrics";
-import { formatDate, money, percent } from "@/lib/utils";
+import { expoStatus, formatDate, money, percent } from "@/lib/utils";
 
 interface Props {
   data: AppData;
   expoId: string;
   onExpoChange: (id: string) => void;
-  onSaveMarketing: (value: { expoId: string; asOfDate: string; adsSpend: number; sales: number }) => void;
+  onOpenAppointments: (id: string) => void;
+  onSaveMarketing: (value: { expoId: string; asOfDate: string; adsSpend: number; forecastSales: number; sales: number }) => void;
 }
 
-export function Dashboard({ data, expoId, onExpoChange, onSaveMarketing }: Props) {
+export function Dashboard({ data, expoId, onExpoChange, onOpenAppointments, onSaveMarketing }: Props) {
   const expo = data.expos.find((item) => item.id === expoId) ?? data.expos[0];
   const [from, setFrom] = useState(expo?.startDate ?? "");
   const [to, setTo] = useState(expo?.endDate ?? "");
   const [marketingOpen, setMarketingOpen] = useState(false);
   const metrics = useMemo(() => dashboardMetrics(data, expo?.id ?? "", from, to), [data, expo?.id, from, to]);
-  const [marketingForm, setMarketingForm] = useState({ asOfDate: expo?.endDate ?? "", adsSpend: metrics.adsSpend, sales: metrics.sales });
+  const [marketingForm, setMarketingForm] = useState({ asOfDate: expo?.endDate ?? "", adsSpend: metrics.adsSpend, forecastSales: metrics.forecastSales, sales: metrics.sales });
+  const recentHistory = useMemo(() => [...data.auditLogs].sort((left, right) => right.createdAt.localeCompare(left.createdAt)).slice(0, 15), [data.auditLogs]);
+  const expoOverview = useMemo(() => {
+    const summaries = data.expos.map((item) => ({
+      expo: item,
+      status: expoStatus(item),
+      metrics: dashboardMetrics(data, item.id, item.startDate, item.endDate),
+    }));
+    const ongoing = summaries.filter((item) => item.status === "Ongoing").sort((left, right) => left.expo.startDate.localeCompare(right.expo.startDate));
+    const upcoming = summaries.filter((item) => item.status === "Upcoming").sort((left, right) => left.expo.startDate.localeCompare(right.expo.startDate));
+    const ended = summaries.filter((item) => item.status === "Ended").sort((left, right) => right.expo.endDate.localeCompare(left.expo.endDate));
+    return [...ongoing, ...upcoming, ...ended].slice(0, 3);
+  }, [data]);
 
   function changeExpo(id: string) {
     const selected = data.expos.find((item) => item.id === id);
@@ -32,7 +46,7 @@ export function Dashboard({ data, expoId, onExpoChange, onSaveMarketing }: Props
 
   function openMarketing() {
     const current = dashboardMetrics(data, expo.id, from, to);
-    setMarketingForm({ asOfDate: to || expo.endDate, adsSpend: current.adsSpend, sales: current.sales });
+    setMarketingForm({ asOfDate: to || expo.endDate, adsSpend: current.adsSpend, forecastSales: current.forecastSales, sales: current.sales });
     setMarketingOpen(true);
   }
 
@@ -52,7 +66,7 @@ export function Dashboard({ data, expoId, onExpoChange, onSaveMarketing }: Props
       title="Expo dashboard"
       subtitle={expo ? `${expo.name} · ${expo.location}` : "Select an expo"}
       actions={<>
-        <div className="date-control"><CalendarDays size={16} /><input aria-label="From date" type="date" value={from} onChange={(e) => setFrom(e.target.value)} /><span>—</span><input aria-label="To date" type="date" value={to} onChange={(e) => setTo(e.target.value)} /></div>
+        <DateRangePicker from={from} to={to} min={expo.startDate} max={expo.endDate} onChange={(nextFrom, nextTo) => { setFrom(nextFrom); setTo(nextTo); }} />
         <button className="button secondary" onClick={openMarketing}><PencilLine size={16} /> Marketing data</button>
       </>}
     />
@@ -72,6 +86,26 @@ export function Dashboard({ data, expoId, onExpoChange, onSaveMarketing }: Props
       <MetricCard label="Freebie only" value={String(metrics.freebieOnly)} detail={`${percent(metrics.freebieOnly, metrics.attended)} of attended`} icon={<Sparkles />} tone="rose" />
       <MetricCard label="Ads spend UTD" value={money(metrics.adsSpend)} detail={metrics.costPerAppointment === null ? "CPA —" : `${money(metrics.costPerAppointment)} per RSVP`} icon={<Megaphone />} tone="sage" compact />
       <MetricCard label="ROAS" value={metrics.roas === null ? "—" : `${metrics.roas.toFixed(2)}x`} detail={metrics.aov === null ? "AOV —" : `AOV ${money(metrics.aov)}`} icon={<WalletCards />} tone="gold" />
+      <MetricCard label="Forecast sales for lead" value={money(metrics.forecastSales)} detail="Marketer forecast" icon={<TrendingUp />} tone="blue" compact />
+      <MetricCard label="Cost per appointment" value={metrics.costPerAppointment === null ? "—" : money(metrics.costPerAppointment)} detail="Ads spend / RSVP" icon={<Calculator />} tone="rose" compact />
+      <MetricCard label="AOV" value={metrics.aov === null ? "—" : money(metrics.aov)} detail="Sales / purchase" icon={<ReceiptText />} tone="sage" compact />
+      <MetricCard label="Sales from RSVP" value={money(metrics.sales)} detail={metrics.hasManualSales ? "Manual marketing snapshot" : "Auto total from purchase amounts"} icon={<BadgeDollarSign />} tone="gold" compact />
+    </section>
+
+    <section className="expo-overview panel">
+      <div className="expo-overview-heading"><div><h2>Expo Overview</h2><p>Ongoing, upcoming and recent Expo performance</p></div><span>Full Expo totals</span></div>
+      <div className="expo-overview-grid">{expoOverview.map(({ expo: item, status, metrics: summary }) => {
+        const attendanceRate = summary.rsvp ? Math.round(summary.attended / summary.rsvp * 100) : 0;
+        const dates = item.startDate === item.endDate ? formatDate(item.startDate) : `${formatDate(item.startDate)} – ${formatDate(item.endDate)}`;
+        return <button type="button" className={`expo-overview-card ${status.toLowerCase()}`} key={item.id} onClick={() => onOpenAppointments(item.id)} aria-label={`Open ${item.name} appointments`}>
+          <div className="expo-overview-top"><span className="expo-overview-status">{status}</span><time>{dates}</time></div>
+          <h3>{item.name}</h3>
+          <p><MapPin /> {item.location}</p>
+          <div className="expo-overview-stats"><div><span>RSVP</span><strong>{summary.rsvp}</strong></div><div><span>Attended</span><strong>{summary.attended}</strong><small>{attendanceRate}%</small></div><div><span>Conversion</span><strong>{summary.conversion === null ? "—" : `${Math.round(summary.conversion * 100)}%`}</strong><small>{summary.purchased} purchased</small></div><div><span>Sales from RSVP</span><strong>{money(summary.sales)}</strong></div></div>
+          <div className="expo-attendance-track"><i style={{ width: `${attendanceRate}%` }} /></div>
+          <div className="expo-overview-link">Open schedule <ArrowRight /></div>
+        </button>;
+      })}</div>
     </section>
 
     <section className="analytics-grid">
@@ -117,17 +151,90 @@ export function Dashboard({ data, expoId, onExpoChange, onSaveMarketing }: Props
       </tbody></table></div>
     </section>
 
+    <section className="panel edit-history-panel">
+      <div className="panel-heading"><div><h2>Edit history</h2><p>Latest dashboard changes and who made them</p></div><span className="updated-pill"><History /> Recent activity</span></div>
+      <div className="edit-history-list">
+        {recentHistory.map((log) => {
+          const actor = log.actorName || log.actorEmail || "System / Historical";
+          const initials = actor === "System / Historical" ? "S" : actor.split(" ").map((part) => part[0]).slice(0, 2).join("").toUpperCase();
+          return <article key={log.id}><i>{initials}</i><div><strong>{log.summary}</strong><span>by {actor} · {formatAuditTime(log.createdAt)}</span></div><b>{log.action}</b></article>;
+        })}
+        {!recentHistory.length && <div className="history-empty">No changes recorded yet.</div>}
+      </div>
+    </section>
+
     {marketingOpen && <div className="drawer-backdrop" onMouseDown={(e) => e.currentTarget === e.target && setMarketingOpen(false)}><aside className="drawer small-drawer">
       <div className="drawer-head"><div><span className="eyebrow">Marketer workspace</span><h2>Update performance</h2><p>Save cumulative figures as of a selected date.</p></div><button className="icon-button" onClick={() => setMarketingOpen(false)} aria-label="Close"><X /></button></div>
       <div className="drawer-body form-stack">
         <label className="field"><span>As of date</span><input type="date" value={marketingForm.asOfDate} onChange={(e) => setMarketingForm({ ...marketingForm, asOfDate: e.target.value })} /></label>
         <label className="field"><span>Actual ads spend UTD (RM)</span><input type="number" min="0" value={marketingForm.adsSpend} onChange={(e) => setMarketingForm({ ...marketingForm, adsSpend: Number(e.target.value) })} /></label>
+        <label className="field"><span>Forecast sales for lead (RM)</span><input type="number" min="0" value={marketingForm.forecastSales} onChange={(e) => setMarketingForm({ ...marketingForm, forecastSales: Number(e.target.value) })} /></label>
         <label className="field"><span>Sales from RSVP UTD (RM)</span><input type="number" min="0" value={marketingForm.sales} onChange={(e) => setMarketingForm({ ...marketingForm, sales: Number(e.target.value) })} /></label>
+        <div className="form-info marketing-sales-info"><span>Auto total from Purchase Amount: <strong>{money(metrics.autoSales)}</strong>. You may replace it with the marketer&apos;s confirmed total.</span><button type="button" onClick={() => setMarketingForm({ ...marketingForm, sales: metrics.autoSales })}>Use auto total</button></div>
         <div className="formula-preview"><div><span>CPA</span><strong>{metrics.rsvp ? money(marketingForm.adsSpend / metrics.rsvp) : "—"}</strong></div><div><span>AOV</span><strong>{metrics.purchased ? money(marketingForm.sales / metrics.purchased) : "—"}</strong></div><div><span>ROAS</span><strong>{marketingForm.adsSpend ? `${(marketingForm.sales / marketingForm.adsSpend).toFixed(2)}x` : "—"}</strong></div></div>
       </div>
       <div className="drawer-footer"><button className="button ghost" onClick={() => setMarketingOpen(false)}>Cancel</button><button className="button primary" onClick={() => { onSaveMarketing({ expoId: expo.id, ...marketingForm }); setMarketingOpen(false); }}>Save snapshot</button></div>
     </aside></div>}
   </>;
+}
+
+function formatAuditTime(value: string) {
+  return new Intl.DateTimeFormat("en-MY", { timeZone: "Asia/Kuala_Lumpur", day: "2-digit", month: "short", hour: "numeric", minute: "2-digit" }).format(new Date(value));
+}
+
+function DateRangePicker({ from, to, min, max, onChange }: { from: string; to: string; min: string; max: string; onChange: (from: string, to: string) => void }) {
+  const [open, setOpen] = useState(false);
+  const [month, setMonth] = useState(() => startOfMonth(parseISO(from || min)));
+  const [rangeStart, setRangeStart] = useState("");
+  const monthDays = eachDayOfInterval({ start: startOfWeek(startOfMonth(month), { weekStartsOn: 0 }), end: endOfWeek(endOfMonth(month), { weekStartsOn: 0 }) });
+  const rangeLabel = from === to ? calendarFormat(parseISO(from), "d MMM yyyy") : `${calendarFormat(parseISO(from), "d MMM")} – ${calendarFormat(parseISO(to), "d MMM yyyy")}`;
+  const expoLabel = min === max ? calendarFormat(parseISO(min), "d MMM yyyy") : `${calendarFormat(parseISO(min), "d MMM")}–${calendarFormat(parseISO(max), "d MMM yyyy")}`;
+  const firstMonth = min.slice(0, 7);
+  const lastMonth = max.slice(0, 7);
+  const currentMonth = calendarFormat(month, "yyyy-MM");
+
+  function showCalendar() {
+    setMonth(startOfMonth(parseISO(from || min)));
+    setRangeStart("");
+    setOpen((value) => !value);
+  }
+
+  function selectDate(value: string) {
+    if (!rangeStart) {
+      setRangeStart(value);
+      onChange(value, value);
+      return;
+    }
+    onChange(value < rangeStart ? value : rangeStart, value < rangeStart ? rangeStart : value);
+    setRangeStart("");
+    setOpen(false);
+  }
+
+  return <div className="date-picker-wrap">
+    <button type="button" className="date-range-trigger" onClick={showCalendar} aria-haspopup="dialog" aria-expanded={open}>
+      <i><CalendarDays /></i><span><small>Reporting period</small><strong>{rangeLabel}</strong></span>
+    </button>
+    {open && <>
+      <button type="button" className="date-picker-dismiss" aria-label="Close calendar" onClick={() => { setOpen(false); setRangeStart(""); }} />
+      <div className="date-picker-popover" role="dialog" aria-label="Choose dashboard date range">
+        <div className="date-picker-heading">
+          <button type="button" aria-label="Previous month" disabled={currentMonth <= firstMonth} onClick={() => setMonth(addMonths(month, -1))}><ChevronLeft /></button>
+          <strong>{calendarFormat(month, "MMMM yyyy")}</strong>
+          <button type="button" aria-label="Next month" disabled={currentMonth >= lastMonth} onClick={() => setMonth(addMonths(month, 1))}><ChevronRight /></button>
+        </div>
+        <div className="date-picker-weekdays">{["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"].map((day) => <span key={day}>{day}</span>)}</div>
+        <div className="date-picker-days">{monthDays.map((day) => {
+          const value = calendarFormat(day, "yyyy-MM-dd");
+          const available = value >= min && value <= max;
+          const start = value === from;
+          const end = value === to;
+          const within = value > from && value < to;
+          return <button type="button" key={value} disabled={!available} className={`${!isSameMonth(day, month) ? "outside" : ""} ${start ? "range-start" : ""} ${end ? "range-end" : ""} ${within ? "in-range" : ""}`} onClick={() => selectDate(value)} aria-label={calendarFormat(day, "d MMMM yyyy")}>{calendarFormat(day, "d")}</button>;
+        })}</div>
+        <div className="date-picker-foot"><strong>{rangeStart ? "Now choose the end date" : "Choose the start date"}</strong><span>Available Expo dates: {expoLabel}</span></div>
+      </div>
+    </>}
+  </div>;
 }
 
 export function PageHeader({ eyebrow, title, subtitle, actions }: { eyebrow: string; title: string; subtitle: string; actions?: React.ReactNode }) {

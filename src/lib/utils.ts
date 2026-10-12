@@ -20,6 +20,11 @@ export function displayPhone(phone: string) {
   return phone;
 }
 
+export function formatPhoneInput(phone: string) {
+  const normalized = normalizePhone(phone);
+  return normalized ? displayPhone(normalized) : phone.trim();
+}
+
 export function dateRange(start: string, end: string) {
   const dates: string[] = [];
   let cursor = parseISO(start);
@@ -65,6 +70,26 @@ export function sourceName(data: AppData, sourceId: string) {
   return data.sources.find((source) => source.id === sourceId)?.name ?? "Other";
 }
 
+export function sourceBadgeTone(name: string) {
+  const value = name.toLowerCase();
+  if (value.includes("ig") || value.includes("instagram")) return "source-ig";
+  if (value.includes("fb") || value.includes("facebook")) return "source-fb";
+  if (value.includes("whatsapp") || value === "wa") return "source-whatsapp";
+  if (value.includes("community")) return "source-community";
+  if (value.includes("walk")) return "source-walkin";
+  return "source-other";
+}
+
+export function timeSlotTone(startTime = "") {
+  const hour = Number(startTime.slice(0, 2));
+  if (!Number.isFinite(hour)) return "time-other";
+  if (hour < 13) return "time-morning";
+  if (hour < 15) return "time-early-afternoon";
+  if (hour < 17) return "time-afternoon";
+  if (hour < 19) return "time-evening";
+  return "time-night";
+}
+
 export function customerFor(data: AppData, appointment: Appointment) {
   return data.customers.find((customer) => customer.id === appointment.customerId);
 }
@@ -81,4 +106,3 @@ export function percent(numerator: number, denominator: number) {
   if (!denominator) return "—";
   return `${Math.round((numerator / denominator) * 100)}%`;
 }
-
